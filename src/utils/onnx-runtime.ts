@@ -1,0 +1,57 @@
+import { createRequire } from "node:module";
+
+export interface OnnxSession {
+	run(inputs: Record<string, OnnxTensor>): Record<string, OnnxTensor>;
+	dispose(): void;
+}
+
+export interface OnnxTensor {
+	readonly data: Float32Array;
+	readonly dims: ReadonlyArray<number>;
+}
+
+export interface OnnxSessionOptions {
+	readonly executionProviders?: ReadonlyArray<string>;
+}
+
+interface OnnxAddon {
+	createSession(modelPath: string, options?: { executionProviders?: Array<string> }): OnnxAddonSession;
+}
+
+interface OnnxAddonSession {
+	run(inputs: Record<string, OnnxTensor>): Record<string, OnnxTensor>;
+	dispose(): void;
+	inputNames(): Array<string>;
+	outputNames(): Array<string>;
+}
+
+const require = createRequire(import.meta.url);
+
+export function createOnnxSession(addonPath: string, modelPath: string, options?: OnnxSessionOptions): OnnxSession {
+	let addon: OnnxAddon;
+
+	try {
+		addon = require(addonPath) as OnnxAddon;
+	} catch (error) {
+		throw new Error(`Failed to load ONNX Runtime addon from "${addonPath}": ${error instanceof Error ? error.message : String(error)}`);
+	}
+
+	let session: OnnxAddonSession;
+
+	try {
+		session = addon.createSession(modelPath, {
+			executionProviders: options?.executionProviders ? [...options.executionProviders] : ["cuda", "cpu"],
+		});
+	} catch (error) {
+		throw new Error(`Failed to create ONNX session for model "${modelPath}": ${error instanceof Error ? error.message : String(error)}`);
+	}
+
+	return {
+		run(inputs) {
+			return session.run(inputs);
+		},
+		dispose() {
+			session.dispose();
+		},
+	};
+}
